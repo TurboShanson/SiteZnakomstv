@@ -42,6 +42,12 @@ namespace SiteZnakomstv
 
 
             builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
+            builder.Services.AddSingleton<SiteZnakomstv.Services.MessageNotifier>();
+            builder.Services.AddControllers();
+            builder.Services.AddHttpClient();
+
+
+
 
             var app = builder.Build();
 
@@ -61,6 +67,8 @@ namespace SiteZnakomstv
 
             app.UseStaticFiles();
             app.UseAntiforgery();
+
+            app.MapControllers();
 
             app.MapRazorComponents<App>()
                 .AddInteractiveServerRenderMode();

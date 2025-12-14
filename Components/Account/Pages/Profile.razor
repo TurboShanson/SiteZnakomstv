@@ -29,6 +29,11 @@
 <p>Дата рождения: @ProfileUser?.BirthDate?.ToShortDateString()</p>
 <p>Интересы: @string.Join(", ", UserInterests.Select(i => i.Name))</p>
 
+@if (!IsOwnProfile)
+{
+    <button class="btn btn-primary" @onclick="@StartChat">Сообщение</button>
+}
+
 @if (IsOwnProfile)
 {
     <button class="btn btn-primary" @onclick="@EditProfile">Редактировать</button>
@@ -69,6 +74,32 @@
                 .ToListAsync();
         }
     }
+
+    private async Task StartChat()
+    {
+        var currentUserId = CurrentUserId;
+        var otherUserId = ProfileUser.Id;
+
+        var chat = await _context.Chats
+            .Include(c => c.Messages)
+            .FirstOrDefaultAsync(c =>
+                (c.User1Id == currentUserId && c.User2Id == otherUserId) ||
+                (c.User1Id == otherUserId && c.User2Id == currentUserId));
+
+        if (chat == null)
+        {
+            chat = new Chatik
+                {
+                    User1Id = currentUserId,
+                    User2Id = otherUserId
+                };
+            _context.Chats.Add(chat);
+            await _context.SaveChangesAsync();
+        }
+
+        NavigationManager.NavigateTo($"/chat/{chat.Id}");
+    }
+
 
     private void EditProfile()
     {

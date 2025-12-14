@@ -1,0 +1,169 @@
+﻿@page "/chat/{ChatId:int}"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.WebUtilities
+@using SiteZnakomstv.Data
+@using Microsoft.EntityFrameworkCore
+@using System.Timers
+@implements IDisposable
+
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager NavigationManager
+@inject ApplicationDbContext _context
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IJSRuntime JS
+
+<div class="chat-container d-flex flex-column" style="height:calc(100vh - 90px);">
+    <div class="chat-window flex-grow-1 p-3 border overflow-auto">
+        @foreach (var msg in Messages)
+        {
+            <div class="@GetMessageCss(msg.SenderId)">
+                <strong>@msg.SenderName</strong>: <span class="text-dark">@msg.Text</span>
+                <small class="text-muted">@msg.SentAt.ToLocalTime().ToShortTimeString()</small>
+            </div>
+        }
+    </div>
+
+    <div class="chat-input d-flex p-2 border-top" style="height:60px;">
+        <input type="text"
+               class="form-control me-2"
+               placeholder="Написать сообщение..."
+               style="height:40px;"
+               @bind="NewMessage"
+               @onkeydown="CheckEnter" />
+        <button class="btn btn-primary" style="height:40px;" @onclick="SendMessage">Отправить</button>
+    </div>
+</div>
+
+
+
+
+@code {
+    [Parameter] public int ChatId { get; set; }
+    private List<(string SenderId, string SenderName, string Text, DateTime SentAt)> Messages = new();
+    private string NewMessage = "";
+    private string CurrentUserId = "";
+    private Timer? _refreshTimer;
+    private DateTime _lastUpdate = DateTime.UtcNow;
+    private bool _isLoading = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        CurrentUserId = UserManager.GetUserId(user);
+
+        await LoadMessages();
+
+        // Запускаем таймер для обновления каждые 2 секунды
+        _refreshTimer = new Timer(2000); // 2 секунды
+        _refreshTimer.Elapsed += async (sender, e) => await RefreshMessages();
+        _refreshTimer.AutoReset = true;
+        _refreshTimer.Enabled = true;
+    }
+
+    private async Task LoadMessages()
+    {
+        _isLoading = true;
+
+        var chat = await _context.Chats
+            .Include(c => c.Messages.OrderBy(m => m.SentAt))
+                .ThenInclude(m => m.Sender)
+            .FirstOrDefaultAsync(c => c.Id == ChatId);
+
+        if (chat != null)
+        {
+            Messages.Clear();
+            foreach (var m in chat.Messages)
+            {
+                Messages.Add((m.SenderId, m.Sender.Name, m.Text, m.SentAt));
+            }
+
+            _lastUpdate = chat.Messages.Any()
+                ? chat.Messages.Max(m => m.SentAt)
+                : DateTime.UtcNow;
+        }
+
+        _isLoading = false;
+        StateHasChanged();
+        await ScrollToBottom();
+    }
+
+    private async Task RefreshMessages()
+    {
+        if (_isLoading) return;
+
+        // Проверяем наличие новых сообщений с момента последнего обновления
+        var hasNewMessages = await _context.Messages
+            .Include(m => m.Sender)
+            .Where(m => m.ChatId == ChatId && m.SentAt > _lastUpdate)
+            .AnyAsync();
+
+        if (hasNewMessages)
+        {
+            await InvokeAsync(async () =>
+            {
+                await LoadMessages();
+            });
+        }
+    }
+
+    private async Task SendMessage()
+    {
+        if (!string.IsNullOrWhiteSpace(NewMessage))
+        {
+            var msg = new Message
+                {
+                    ChatId = ChatId,
+                    SenderId = CurrentUserId,
+                    Text = NewMessage,
+                    SentAt = DateTime.UtcNow
+                };
+
+            _context.Messages.Add(msg);
+            await _context.SaveChangesAsync();
+
+            // Обновляем последнее время обновления
+            _lastUpdate = msg.SentAt;
+
+            // Добавляем сообщение в список
+            var sender = await _context.Users.FindAsync(CurrentUserId);
+            Messages.Add((CurrentUserId, sender?.Name ?? "Вы", NewMessage, msg.SentAt));
+
+            NewMessage = "";
+
+            // Прокручиваем вниз и обновляем состояние
+            StateHasChanged();
+            await ScrollToBottom();
+        }
+    }
+
+    private async Task CheckEnter(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            await SendMessage();
+    }
+
+    private string GetMessageCss(string senderId) =>
+        senderId == CurrentUserId ? "text-end mb-2" : "text-start mb-2";
+
+    private async Task ScrollToBottom()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("eval",
+                "var chatWindow = document.querySelector('.chat-window');" +
+                "if (chatWindow) chatWindow.scrollTop = chatWindow.scrollHeight;");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка прокрутки: {ex.Message}");
+        }
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Stop();
+        _refreshTimer?.Dispose();
+    }
+}
