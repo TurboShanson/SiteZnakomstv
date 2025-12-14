@@ -1,0 +1,252 @@
+﻿@page "/users"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Identity
+@using SiteZnakomstv.Data
+@using Microsoft.EntityFrameworkCore
+
+@inject UserManager<ApplicationUser> UserManager
+@inject ApplicationDbContext _context
+@inject NavigationManager NavigationManager
+
+<h3 class="mb-4">Пользователи</h3>
+
+<div class="mb-3 d-flex flex-wrap gap-2 align-items-end">
+    <!-- Поиск по имени -->
+    <input type="text" class="form-control" style="width:200px;"
+           placeholder="Имя или фамилия" @bind="nameFilter" />
+
+    <!-- Возраст -->
+    <input type="number" class="form-control" style="width:80px;"
+           placeholder="От" @bind="minAge" />
+    <input type="number" class="form-control" style="width:80px;"
+           placeholder="До" @bind="maxAge" />
+
+    <!-- Город -->
+    <select class="form-select" style="width:150px;" @bind="cityFilter">
+        <option value="">Все города</option>
+        @foreach (var city in allCities)
+        {
+            <option value="@city">@city</option>
+        }
+    </select>
+
+    <!-- Пол -->
+    <select class="form-select" style="width:120px;" @bind="genderFilter">
+        <option value="">Все</option>
+        <option value="Мужской">Мужской</option>
+        <option value="Женский">Женский</option>
+    </select>
+
+    <!-- Кнопка фильтра по интересам -->
+    <button class="btn btn-outline-secondary filter-btn"
+            @onclick="() => showInterestFilter = !showInterestFilter">
+        Фильтр по интересам
+    </button>
+</div>
+
+@if (showInterestFilter)
+{
+    <div class="interest-filter-overlay">
+        <div class="interest-filter-box">
+            <h5 class="mb-3">Выберите интересы</h5>
+
+            <div class="interest-list">
+                @foreach (var interest in allInterests)
+                {
+                    <label class="form-check">
+                        <input class="form-check-input"
+                               type="checkbox"
+                               checked="@selectedInterests.Contains(interest)"
+                               @onchange="(e => OnInterestChanged(interest, (bool)e.Value!))" />
+                        <span class="form-check-label">@interest</span>
+                    </label>
+                }
+            </div>
+
+            <div class="d-flex justify-content-end gap-2 mt-3">
+                <button class="btn btn-sm btn-secondary" @onclick="ClearFilters">Сбросить</button>
+                <button class="btn btn-sm btn-primary" @onclick="() => showInterestFilter = false">Готово</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (users == null)
+{
+    <p>Загрузка...</p>
+}
+else
+{
+    <div class="row">
+        @foreach (var user in FilteredUsers)
+        {
+            var avatar = string.IsNullOrEmpty(user.AvatarPath) ? "/avatars/default-avatar.png" : $"/avatars/{user.AvatarPath}";
+
+            <div class="col-md-4 mb-4">
+                <div class="card user-card h-100">
+                    <div class="card-body d-flex">
+                        <img src="@avatar" class="user-avatar me-3"
+                             @onclick="@(() => NavigationManager.NavigateTo($"/profile/{user.Id}"))" />
+
+                        <div>
+                            <h5 class="mb-1">@user.Surname @user.Name</h5>
+
+                            <div class="text-muted small">
+                                <div>Возраст: @GetAge(user.BirthDate)</div>
+                                <div>Город: @user.City</div>
+                                <div>Пол: @user.Gender</div>
+                            </div>
+
+                            @{
+                                var userInterests = _context.Interests
+                                .Where(i => i.UserId == user.Id)
+                                .Select(i => i.Name)
+                                .ToList();
+                            }
+                            @if (userInterests.Any())
+                            {
+                                <div class="mt-2">
+                                    <strong>Интересы:</strong>
+                                    <div class="small">@string.Join(", ", userInterests)</div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<ApplicationUser>? users;
+    private List<string> allCities = new();
+    private List<string> allInterests = new();
+    private HashSet<string> selectedInterests = new();
+    private bool showInterestFilter = false;
+
+    private string nameFilter = "";
+    private int? minAge;
+    private int? maxAge;
+    private string cityFilter = "";
+    private string genderFilter = "";
+
+    private IEnumerable<ApplicationUser> FilteredUsers
+    {
+        get
+        {
+            if (users == null) return Enumerable.Empty<ApplicationUser>();
+
+            return users.Where(u =>
+                (string.IsNullOrWhiteSpace(nameFilter) ||
+                 (u.Name?.Contains(nameFilter, StringComparison.OrdinalIgnoreCase) == true) ||
+                 (u.Surname?.Contains(nameFilter, StringComparison.OrdinalIgnoreCase) == true)) &&
+                (string.IsNullOrWhiteSpace(cityFilter) || u.City == cityFilter) &&
+                (string.IsNullOrWhiteSpace(genderFilter) || u.Gender == genderFilter) &&
+                (!minAge.HasValue || (u.BirthDate.HasValue && GetAge(u.BirthDate.Value) >= minAge.Value)) &&
+                (!maxAge.HasValue || (u.BirthDate.HasValue && GetAge(u.BirthDate.Value) <= maxAge.Value)) &&
+                (selectedInterests.Count == 0 || _context.Interests
+                    .Where(i => i.UserId == u.Id)
+                    .Select(i => i.Name)
+                    .Intersect(selectedInterests)
+                    .Any())
+            );
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        allCities = await _context.Users
+            .Where(u => !string.IsNullOrEmpty(u.City))
+            .Select(u => u.City!)
+            .Distinct()
+            .OrderBy(c => c)
+            .ToListAsync();
+
+        allInterests = await _context.Interests
+            .Select(i => i.Name)
+            .Distinct()
+            .OrderBy(i => i)
+            .ToListAsync();
+
+        users = await _context.Users.OrderBy(u => u.Name).ToListAsync();
+    }
+
+    private int? GetAge(DateTime? dateBirth)
+    {
+        if (!dateBirth.HasValue) return null;
+
+        var today = DateTime.Today;
+        var age = today.Year - dateBirth.Value.Year;
+        if (dateBirth.Value.Date > today.AddYears(-age)) age--;
+        return age;
+    }
+
+    private void OnInterestChanged(string interest, bool isChecked)
+    {
+        if (isChecked) selectedInterests.Add(interest);
+        else selectedInterests.Remove(interest);
+    }
+
+    private void ClearFilters()
+    {
+        selectedInterests.Clear();
+    }
+}
+
+<style>
+    .user-card {
+        border-radius: 12px;
+        transition: box-shadow 0.2s ease;
+    }
+
+        .user-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+    .user-avatar {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        object-fit: cover;
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+
+    .interest-filter-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+
+    .interest-filter-box {
+        background: white;
+        border-radius: 12px;
+        padding: 20px;
+        width: 320px;
+        max-height: 70vh;
+        overflow-y: auto;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    }
+
+    .interest-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .filter-btn {
+        background-color: #ffffff;
+        color: #212529;
+        border: 1px solid #ced4da;
+    }
+
+        .filter-btn:hover {
+            background-color: #f8f9fa;
+            color: #212529;
+        }
+</style>

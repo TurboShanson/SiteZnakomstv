@@ -1,4 +1,10 @@
 ﻿@inherits LayoutComponentBase
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+@using SiteZnakomstv.Data
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager NavigationManager
+@inject UserManager<ApplicationUser> UserManager
 
 <div class="page">
     <div class="sidebar">
@@ -6,8 +12,29 @@
     </div>
 
     <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+        <div class="top-row px-4 d-flex justify-content-between align-items-center">
+            <!-- Левое пустое место -->
+            <div></div>
+
+            <!-- Название сайта по центру -->
+            <div class="site-title text-center fw-bold fs-4">
+                <a href="/" class="text-decoration-none text-dark">HeartPath</a>
+            </div>
+
+            <!-- Правая часть -->
+            <div class="d-flex align-items-center">
+                @if (user != null)
+                {
+                    <a href="@($"/profile/{user.Id}")" class="me-3">
+                        <img src="@AvatarUrl" class="user-avatar" />
+                    </a>
+                }
+                else
+                {
+                    <a href="/Account/Login" class="me-2">Вход</a>
+                    <a href="/Account/Register">Регистрация</a>
+                }
+            </div>
         </div>
 
         <article class="content px-4">
@@ -16,8 +43,50 @@
     </main>
 </div>
 
-<div id="blazor-error-ui">
-    An unhandled error has occurred.
-    <a href="" class="reload">Reload</a>
-    <a class="dismiss">🗙</a>
-</div>
+@code {
+    private ApplicationUser? user;
+    private string AvatarUrl = "/avatars/default-avatar.png";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var identityUser = authState.User;
+
+        if (identityUser.Identity != null && identityUser.Identity.IsAuthenticated)
+        {
+            var userId = UserManager.GetUserId(identityUser);
+            if (userId != null)
+            {
+                // Получаем пользователя только через UserManager, безопасно для Blazor
+                user = await UserManager.FindByIdAsync(userId);
+                if (user != null && !string.IsNullOrEmpty(user.AvatarPath))
+                {
+                    AvatarUrl = $"/avatars/{user.AvatarPath}";
+                }
+            }
+        }
+    }
+}
+
+<style>
+    .top-row {
+        height: 60px;
+        border-bottom: 1px solid #dee2e6;
+        display: flex;
+        align-items: center;
+        padding: 0 1rem;
+    }
+
+    .site-title {
+        flex-grow: 1;
+        text-align: center;
+    }
+
+    .user-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        cursor: pointer;
+        object-fit: cover;
+    }
+</style>

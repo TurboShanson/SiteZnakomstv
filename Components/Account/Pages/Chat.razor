@@ -1,7 +1,6 @@
 ﻿@page "/chat/{ChatId:int}"
 @rendermode InteractiveServer
 @using Microsoft.AspNetCore.Identity
-@using Microsoft.AspNetCore.WebUtilities
 @using SiteZnakomstv.Data
 @using Microsoft.EntityFrameworkCore
 @using System.Timers
@@ -13,17 +12,43 @@
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IJSRuntime JS
 
-<div class="chat-container d-flex flex-column" style="height:calc(100vh - 90px);">
+<div class="chat-container d-flex flex-column mx-auto" style="height:calc(100vh - 70px); width:70%;">
+
+
+    <!-- Область сообщений -->
     <div class="chat-window flex-grow-1 p-3 border overflow-auto">
         @foreach (var msg in Messages)
         {
-            <div class="@GetMessageCss(msg.SenderId)">
-                <strong>@msg.SenderName</strong>: <span class="text-dark">@msg.Text</span>
-                <small class="text-muted">@msg.SentAt.ToLocalTime().ToShortTimeString()</small>
-            </div>
+            @if (msg.SenderId == CurrentUserId)
+            {
+                <!-- Свои сообщения: только синий пузырёк, справа -->
+                <div class="message d-flex justify-content-end mb-2">
+                    <div class="message-content text-white bg-primary">
+                        @msg.Text
+                        <br />
+                        <small class="text-light">@msg.SentAt.ToLocalTime().ToShortTimeString()</small>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <!-- Чужие сообщения: аватарка + имя -->
+                <div class="message text-start d-flex align-items-start mb-2">
+                    <img src="@msg.AvatarUrl" class="rounded-circle me-2" style="width:40px; height:40px; object-fit:cover;"
+                         @onclick="@(() => NavigationManager.NavigateTo($"/profile/{msg.SenderId}"))"
+                    @onclick:stopPropagation />
+                    <div class="message-content bg-light text-dark">
+                        <strong>@msg.SenderName</strong>: @msg.Text
+                        <br />
+                        <small class="text-muted">@msg.SentAt.ToLocalTime().ToShortTimeString()</small>
+                    </div>
+                </div>
+            }
         }
+
     </div>
 
+    <!-- Поле ввода -->
     <div class="chat-input d-flex p-2 border-top" style="height:60px;">
         <input type="text"
                class="form-control me-2"
@@ -35,12 +60,9 @@
     </div>
 </div>
 
-
-
-
 @code {
     [Parameter] public int ChatId { get; set; }
-    private List<(string SenderId, string SenderName, string Text, DateTime SentAt)> Messages = new();
+    private List<(string SenderId, string SenderName, string Text, DateTime SentAt, string AvatarUrl)> Messages = new();
     private string NewMessage = "";
     private string CurrentUserId = "";
     private Timer? _refreshTimer;
@@ -56,7 +78,7 @@
         await LoadMessages();
 
         // Запускаем таймер для обновления каждые 2 секунды
-        _refreshTimer = new Timer(2000); // 2 секунды
+        _refreshTimer = new Timer(2000);
         _refreshTimer.Elapsed += async (sender, e) => await RefreshMessages();
         _refreshTimer.AutoReset = true;
         _refreshTimer.Enabled = true;
@@ -76,7 +98,11 @@
             Messages.Clear();
             foreach (var m in chat.Messages)
             {
-                Messages.Add((m.SenderId, m.Sender.Name, m.Text, m.SentAt));
+                var avatar = string.IsNullOrEmpty(m.Sender.AvatarPath)
+                    ? "/avatars/default-avatar.png"
+                    : $"/avatars/{m.Sender.AvatarPath}";
+
+                Messages.Add((m.SenderId, m.Sender.Name, m.Text, m.SentAt, avatar));
             }
 
             _lastUpdate = chat.Messages.Any()
@@ -93,7 +119,6 @@
     {
         if (_isLoading) return;
 
-        // Проверяем наличие новых сообщений с момента последнего обновления
         var hasNewMessages = await _context.Messages
             .Include(m => m.Sender)
             .Where(m => m.ChatId == ChatId && m.SentAt > _lastUpdate)
@@ -123,16 +148,16 @@
             _context.Messages.Add(msg);
             await _context.SaveChangesAsync();
 
-            // Обновляем последнее время обновления
             _lastUpdate = msg.SentAt;
 
-            // Добавляем сообщение в список
             var sender = await _context.Users.FindAsync(CurrentUserId);
-            Messages.Add((CurrentUserId, sender?.Name ?? "Вы", NewMessage, msg.SentAt));
+            var avatar = string.IsNullOrEmpty(sender?.AvatarPath)
+                ? "/avatars/default-avatar.png"
+                : $"/avatars/{sender.AvatarPath}";
+
+            Messages.Add((CurrentUserId, sender?.Name ?? "Вы", NewMessage, msg.SentAt, avatar));
 
             NewMessage = "";
-
-            // Прокручиваем вниз и обновляем состояние
             StateHasChanged();
             await ScrollToBottom();
         }
@@ -144,9 +169,6 @@
             await SendMessage();
     }
 
-    private string GetMessageCss(string senderId) =>
-        senderId == CurrentUserId ? "text-end mb-2" : "text-start mb-2";
-
     private async Task ScrollToBottom()
     {
         try
@@ -155,10 +177,7 @@
                 "var chatWindow = document.querySelector('.chat-window');" +
                 "if (chatWindow) chatWindow.scrollTop = chatWindow.scrollHeight;");
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Ошибка прокрутки: {ex.Message}");
-        }
+        catch { }
     }
 
     public void Dispose()
@@ -167,3 +186,63 @@
         _refreshTimer?.Dispose();
     }
 }
+
+<style>
+    .chat-window {
+        flex-grow: 1;
+        padding: 1rem;
+        border: 1px solid #dee2e6;
+        overflow-y: auto;
+    }
+
+        .chat-window .message {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 0.5rem;
+            width: 100%; /* добавляем, чтобы блок растягивался по ширине контейнера */
+        }
+
+
+        .chat-window .message-content {
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.75rem;
+        }
+
+        .chat-window .text-end .message-content {
+            background-color: #0d6efd;
+            color: white;
+            max-width: 85%; /* вместо 70% */
+            word-wrap: break-word;
+        }
+
+
+        .chat-window .text-start .message-content {
+            background-color: #f1f3f5;
+            color: #212529;
+        }
+
+        .chat-window img {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            object-fit: cover;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+
+    .chat-input {
+        display: flex;
+        padding: 0.5rem;
+        border-top: 1px solid #dee2e6;
+        height: 60px;
+        background-color: #f8f9fa;
+    }
+
+        .chat-input input {
+            height: 40px;
+        }
+
+        .chat-input button {
+            height: 40px;
+        }
+</style>

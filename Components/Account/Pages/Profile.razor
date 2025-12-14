@@ -65,14 +65,18 @@
             CurrentUserId = UserManager.GetUserId(user); // Id текущего пользователя
         }
 
-        ProfileUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == UserId);
+        ProfileUser = await _context.Users
+    .AsNoTracking()
+    .FirstOrDefaultAsync(u => u.Id == UserId);
 
         if (ProfileUser != null)
         {
             UserInterests = await _context.Interests
+                .AsNoTracking()
                 .Where(i => i.UserId == UserId)
                 .ToListAsync();
         }
+
     }
 
     private async Task StartChat()

@@ -1,4 +1,5 @@
 ﻿@page "/chats"
+@rendermode InteractiveServer
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.WebUtilities
 @using SiteZnakomstv.Data
@@ -20,15 +21,29 @@ else
         @foreach (var chat in userChats)
         {
             var otherUser = chat.User1Id == CurrentUserId ? chat.User2 : chat.User1;
-            <li class="list-group-item d-flex justify-content-between align-items-center"
+            var lastMessage = chat.Messages.OrderByDescending(m => m.SentAt).FirstOrDefault();
+            var avatar = string.IsNullOrEmpty(otherUser.AvatarPath)
+            ? "/avatars/default-avatar.png"
+            : $"/avatars/{otherUser.AvatarPath}";
+
+            <li class="list-group-item d-flex align-items-center"
+                style="cursor:pointer;"
                 @onclick="@(() => NavigationManager.NavigateTo($"/chat/{chat.Id}"))">
-                <span>@otherUser.Name @otherUser.Surname</span>
-                <small>@chat.Messages.OrderByDescending(m => m.SentAt).FirstOrDefault()?.SentAt.ToShortTimeString()</small>
+
+                <img src="@avatar" class="rounded-circle me-3" style="width:50px; height:50px; object-fit:cover;"
+                     @onclick="@(() => NavigationManager.NavigateTo($"/profile/{otherUser.Id}"))"
+                @onclick:stopPropagation />
+
+
+                <div class="flex-grow-1">
+                    <div class="fw-bold">@otherUser.Name @otherUser.Surname</div>
+                    <div class="text-truncate" style="max-width:80%;">@lastMessage?.Text</div>
+                </div>
+                <div class="text-muted ms-2">@lastMessage?.SentAt.ToLocalTime().ToShortTimeString()</div>
             </li>
         }
     </ul>
 }
-
 
 @code {
     private string CurrentUserId = "";
@@ -46,5 +61,10 @@ else
             .Include(c => c.Messages)
             .Where(c => c.User1Id == CurrentUserId || c.User2Id == CurrentUserId)
             .ToListAsync();
+    }
+
+    private void NavigateToProfile(string userId, MouseEventArgs e)
+    {
+        NavigationManager.NavigateTo($"/profile/{userId}");
     }
 }
