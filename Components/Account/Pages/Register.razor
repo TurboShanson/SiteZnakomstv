@@ -1,11 +1,12 @@
 ﻿@page "/Account/Register"
-
+@rendermode InteractiveServer
 @using System.ComponentModel.DataAnnotations
 @using System.Text
 @using System.Text.Encodings.Web
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.WebUtilities
 @using SiteZnakomstv.Data
+@using Microsoft.EntityFrameworkCore
 
 @inject UserManager<ApplicationUser> UserManager
 @inject IUserStore<ApplicationUser> UserStore
@@ -14,19 +15,38 @@
 @inject ILogger<Register> Logger
 @inject NavigationManager NavigationManager
 @inject IdentityRedirectManager RedirectManager
+@inject SiteZnakomstv.Data.ApplicationDbContext DbContext
+@inject ApplicationDbContext _context
 
-<PageTitle>Register</PageTitle>
 
-<h1>Register</h1>
+<PageTitle>Регистрация</PageTitle>
+
+<h1>Регистрация</h1>
 
 <div class="row">
     <div class="col-md-4">
         <StatusMessage Message="@Message" />
         <EditForm Model="Input" asp-route-returnUrl="@ReturnUrl" method="post" OnValidSubmit="RegisterUser" FormName="register">
             <DataAnnotationsValidator />
-            <h2>Create a new account.</h2>
+            <h2>Создание нового аккаунта</h2>
             <hr />
             <ValidationSummary class="text-danger" role="alert" />
+            <div class="form-floating mb-3">
+                <InputText @bind-Value="Input.Surname" class="form-control" placeholder="Фамилия" />
+                <label for="surname">Фамилия</label>
+                <ValidationMessage For="() => Input.Surname" class="text-danger" />
+            </div>
+            <div class="form-floating mb-3">
+                <InputText @bind-Value="Input.Name" class="form-control" placeholder="Имя" />
+                <label for="name">Имя</label>
+                <ValidationMessage For="() => Input.Name" class="text-danger" />
+            </div>
+            <div class="form-floating mb-3">
+                <InputText @bind-Value="Input.InterestsText" class="form-control" placeholder="Спорт, Музыка, Кино" />
+                <label for="interests">Введите свои интересы (через запятую)</label>
+                <ValidationMessage For="() => Input.InterestsText" class="text-danger" />
+            </div>
+
             <div class="form-floating mb-3">
                 <InputText @bind-Value="Input.Email" class="form-control" autocomplete="username" aria-required="true" placeholder="name@example.com" />
                 <label for="email">Email</label>
@@ -57,6 +77,9 @@
 @code {
     private IEnumerable<IdentityError>? identityErrors;
 
+    private List<Interest> AvailableInterests { get; set; } = new List<Interest>();
+    private List<string> SelectedInterestNames { get; set; } = new List<string>();
+
     [SupplyParameterFromForm]
     private InputModel Input { get; set; } = new();
 
@@ -65,13 +88,23 @@
 
     private string? Message => identityErrors is null ? null : $"Error: {string.Join(", ", identityErrors.Select(error => error.Description))}";
 
+    protected override async Task OnInitializedAsync()
+    {
+        // Загружаем список всех доступных интересов из базы данных
+        AvailableInterests = await DbContext.Interests.ToListAsync();
+    }
+
     public async Task RegisterUser(EditContext editContext)
     {
         var user = CreateUser();
 
+        user.Name = Input.Name;
+        user.Surname = Input.Surname;
+
         await UserStore.SetUserNameAsync(user, Input.Email, CancellationToken.None);
         var emailStore = GetEmailStore();
         await emailStore.SetEmailAsync(user, Input.Email, CancellationToken.None);
+
         var result = await UserManager.CreateAsync(user, Input.Password);
 
         if (!result.Succeeded)
@@ -80,27 +113,34 @@
             return;
         }
 
-        Logger.LogInformation("User created a new account with password.");
-
-        var userId = await UserManager.GetUserIdAsync(user);
-        var code = await UserManager.GenerateEmailConfirmationTokenAsync(user);
-        code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
-        var callbackUrl = NavigationManager.GetUriWithQueryParameters(
-            NavigationManager.ToAbsoluteUri("Account/ConfirmEmail").AbsoluteUri,
-            new Dictionary<string, object?> { ["userId"] = userId, ["code"] = code, ["returnUrl"] = ReturnUrl });
-
-        await EmailSender.SendConfirmationLinkAsync(user, Input.Email, HtmlEncoder.Default.Encode(callbackUrl));
-
-        if (UserManager.Options.SignIn.RequireConfirmedAccount)
+        // сохраняем интересы ТОЛЬКО ПОСЛЕ CreateAsync
+        if (!string.IsNullOrWhiteSpace(Input.InterestsText))
         {
-            RedirectManager.RedirectTo(
-                "Account/RegisterConfirmation",
-                new() { ["email"] = Input.Email, ["returnUrl"] = ReturnUrl });
+            var interests = Input.InterestsText
+                .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(i => i.Trim());
+
+            foreach (var interestName in interests)
+            {
+                _context.Interests.Add(new Interest
+                    {
+                        Name = interestName,
+                        UserId = user.Id
+                    });
+            }
+
+            await _context.SaveChangesAsync();
         }
 
-        await SignInManager.SignInAsync(user, isPersistent: false);
-        RedirectManager.RedirectTo(ReturnUrl);
+        Logger.LogInformation("User created a new account.");
+
+        // ❌ НЕ логиним здесь
+        // await SignInManager.SignInAsync(user, false);
+
+        // ✅ редирект на обычный логин
+        NavigationManager.NavigateTo("/Account/Login", true);
     }
+
 
     private ApplicationUser CreateUser()
     {
@@ -132,6 +172,14 @@
         public string Email { get; set; } = "";
 
         [Required]
+        [Display(Name = "Имя")]
+        public string Name { get; set; } = "";
+
+        [Required]
+        [Display(Name = "Фамилия")]
+        public string Surname { get; set; } = "";
+
+        [Required]
         [StringLength(100, ErrorMessage = "The {0} must be at least {2} and at max {1} characters long.", MinimumLength = 6)]
         [DataType(DataType.Password)]
         [Display(Name = "Password")]
@@ -141,5 +189,9 @@
         [Display(Name = "Confirm password")]
         [Compare("Password", ErrorMessage = "The password and confirmation password do not match.")]
         public string ConfirmPassword { get; set; } = "";
+
+        [Display(Name = "Интересы (через запятую)")]
+        public string InterestsText { get; set; } = "";
     }
+
 }

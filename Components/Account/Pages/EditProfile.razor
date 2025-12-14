@@ -1,0 +1,191 @@
+﻿@page "/profile/edit"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.WebUtilities
+@using SiteZnakomstv.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Forms
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject ApplicationDbContext _context
+@inject NavigationManager NavigationManager
+@inject IWebHostEnvironment Env
+
+<h3>Редактирование профиля</h3>
+
+@if (ProfileUser == null)
+{
+    <p>Загрузка...</p>
+}
+else
+{
+    <div class="mb-3">
+        <label>Аватарка</label><br />
+        <img src="@AvatarUrl"
+             width="150"
+             height="150"
+             style="object-fit: cover;"
+             class="rounded-circle mb-2" />
+
+        <div class="mb-2">
+            <InputFile OnChange="UploadAvatar" />
+        </div>
+        @if (!string.IsNullOrWhiteSpace(ProfileUser.AvatarPath))
+        {
+            <button class="btn btn-danger btn-sm" @onclick="DeleteAvatar">Удалить аватарку</button>
+        }
+    </div>
+
+    <div class="mb-2">
+        <label>Имя</label>
+        <input class="form-control" @bind="ProfileUser.Name" />
+    </div>
+
+    <div class="mb-2">
+        <label>Фамилия</label>
+        <input class="form-control" @bind="ProfileUser.Surname" />
+    </div>
+
+    <div class="mb-2">
+        <label>О себе</label>
+        <textarea class="form-control" @bind="ProfileUser.Info"></textarea>
+    </div>
+
+    <div class="mb-2">
+        <label>Город</label>
+        <input class="form-control" @bind="ProfileUser.City" />
+    </div>
+
+    <div class="mb-2">
+        <label>Пол</label>
+        <select class="form-control" @bind="ProfileUser.Gender">
+            <option value="">-- выберите --</option>
+            <option value="Мужской">Мужской</option>
+            <option value="Женский">Женский</option>
+        </select>
+    </div>
+
+    <div class="mb-2">
+        <label>Дата рождения</label>
+        <input type="date" class="form-control"
+               @bind="ProfileUser.BirthDate"
+               @bind:format="yyyy-MM-dd" />
+    </div>
+
+    <div class="mb-2">
+        <label>Интересы (через запятую)</label>
+        <input class="form-control" @bind="InterestsText" />
+    </div>
+
+    <button class="btn btn-success" @onclick="Save">Сохранить</button>
+    <button class="btn btn-secondary ms-2" @onclick="Cancel">Отмена</button>
+}
+
+@code {
+    private ApplicationUser? ProfileUser;
+    private string InterestsText = "";
+    private string AvatarUrl => string.IsNullOrWhiteSpace(ProfileUser?.AvatarPath)
+        ? "/avatars/default-avatar.png"
+        : $"/avatars/{ProfileUser.AvatarPath}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var authUser = authState.User;
+
+        if (!authUser.Identity?.IsAuthenticated ?? true)
+        {
+            NavigationManager.NavigateTo("/login");
+            return;
+        }
+
+        var userId = UserManager.GetUserId(authUser);
+        ProfileUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+
+        if (ProfileUser == null)
+        {
+            NavigationManager.NavigateTo("/");
+            return;
+        }
+
+        var interests = await _context.Interests
+            .Where(i => i.UserId == userId)
+            .Select(i => i.Name)
+            .ToListAsync();
+
+        InterestsText = string.Join(", ", interests);
+    }
+
+    private async Task UploadAvatar(InputFileChangeEventArgs e)
+    {
+        if (ProfileUser == null) return;
+
+        var file = e.File;
+        if (file == null) return;
+
+        var ext = Path.GetExtension(file.Name);
+        if (string.IsNullOrWhiteSpace(ext)) ext = ".png";
+
+        var avatarsPath = Path.Combine(Env.WebRootPath, "avatars");
+        if (!Directory.Exists(avatarsPath)) Directory.CreateDirectory(avatarsPath);
+
+        var filePath = Path.Combine(avatarsPath, $"{ProfileUser.Id}{ext}");
+
+        using (var stream = file.OpenReadStream(5 * 1024 * 1024))
+        using (var fs = new FileStream(filePath, FileMode.Create))
+        {
+            await stream.CopyToAsync(fs);
+        }
+
+        ProfileUser.AvatarPath = $"{ProfileUser.Id}{ext}";
+    }
+
+    private void DeleteAvatar()
+    {
+        if (ProfileUser == null || string.IsNullOrWhiteSpace(ProfileUser.AvatarPath)) return;
+
+        var avatarsPath = Path.Combine(Env.WebRootPath, "avatars");
+        var filePath = Path.Combine(avatarsPath, ProfileUser.AvatarPath);
+
+        if (File.Exists(filePath))
+            File.Delete(filePath);
+
+        ProfileUser.AvatarPath = null;
+    }
+
+    private async Task Save()
+    {
+        if (ProfileUser == null) return;
+
+        var result = await UserManager.UpdateAsync(ProfileUser);
+        if (!result.Succeeded)
+        {
+            foreach (var error in result.Errors)
+                Console.WriteLine(error.Description);
+            return;
+        }
+
+        var oldInterests = await _context.Interests
+            .Where(i => i.UserId == ProfileUser.Id)
+            .ToListAsync();
+
+        _context.Interests.RemoveRange(oldInterests);
+
+        var newInterests = InterestsText
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(i => i.Trim())
+            .Where(i => !string.IsNullOrWhiteSpace(i))
+            .Select(i => new Interest { UserId = ProfileUser.Id, Name = i });
+
+        await _context.Interests.AddRangeAsync(newInterests);
+        await _context.SaveChangesAsync();
+
+        NavigationManager.NavigateTo($"/profile/{ProfileUser.Id}", true);
+    }
+
+    private void Cancel()
+    {
+        if (ProfileUser != null)
+            NavigationManager.NavigateTo($"/profile/{ProfileUser.Id}");
+    }
+}

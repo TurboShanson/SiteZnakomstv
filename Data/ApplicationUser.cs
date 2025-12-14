@@ -10,6 +10,9 @@ namespace SiteZnakomstv.Data
         public string? Interests { get; set; } // через запятую
         public string? Info { get; set; }
         public string? AvatarPath { get; set; }
+        public DateTime? BirthDate { get; set; }  
+        public string? City { get; set; }        
+        public string? Gender { get; set; }       
     }
 
 }

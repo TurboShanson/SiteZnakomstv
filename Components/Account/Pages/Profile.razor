@@ -1,0 +1,78 @@
+﻿@page "/profile/{UserId}"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.WebUtilities
+@using SiteZnakomstv.Data
+@using Microsoft.EntityFrameworkCore
+@inject NavigationManager NavigationManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject UserManager<ApplicationUser> UserManager
+@inject ApplicationDbContext _context
+
+<h3>@ProfileUser?.Name @ProfileUser?.Surname</h3>
+
+@if (ProfileUser != null)
+{
+    <img src="@AvatarUrl"
+         alt="Avatar"
+         width="150"
+         height="150"
+         style="object-fit: cover;"
+         class="rounded-circle mb-3" />
+}
+
+
+
+<p>@ProfileUser?.Info</p>
+<p>Город: @ProfileUser?.City</p>
+<p>Пол: @ProfileUser?.Gender</p>
+<p>Дата рождения: @ProfileUser?.BirthDate?.ToShortDateString()</p>
+<p>Интересы: @string.Join(", ", UserInterests.Select(i => i.Name))</p>
+
+@if (IsOwnProfile)
+{
+    <button class="btn btn-primary" @onclick="@EditProfile">Редактировать</button>
+}
+
+@code {
+    [Parameter] public string UserId { get; set; } = "";
+
+    private ApplicationUser? ProfileUser;
+    private List<Interest> UserInterests = new();
+    private string? CurrentUserId;
+
+    private bool IsOwnProfile => ProfileUser != null && CurrentUserId == ProfileUser.Id;
+
+    private string AvatarUrl =>
+    string.IsNullOrWhiteSpace(ProfileUser?.AvatarPath)
+        ? "/avatars/default-avatar.png"
+        : $"/avatars/{ProfileUser.AvatarPath}";
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Получаем AuthenticationState через внедрённый AuthenticationStateProvider
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity?.IsAuthenticated ?? false)
+        {
+            CurrentUserId = UserManager.GetUserId(user); // Id текущего пользователя
+        }
+
+        ProfileUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == UserId);
+
+        if (ProfileUser != null)
+        {
+            UserInterests = await _context.Interests
+                .Where(i => i.UserId == UserId)
+                .ToListAsync();
+        }
+    }
+
+    private void EditProfile()
+    {
+        NavigationManager.NavigateTo("/profile/edit");
+    }
+
+}
