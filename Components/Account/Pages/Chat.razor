@@ -8,12 +8,11 @@
 
 @inject UserManager<ApplicationUser> UserManager
 @inject NavigationManager NavigationManager
-@inject ApplicationDbContext _context
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IJSRuntime JS
 
 <div class="chat-container d-flex flex-column mx-auto" style="height:calc(100vh - 70px); width:70%;">
-
 
     <!-- Область сообщений -->
     <div class="chat-window flex-grow-1 p-3 border overflow-auto">
@@ -21,7 +20,6 @@
         {
             @if (msg.SenderId == CurrentUserId)
             {
-                <!-- Свои сообщения: только синий пузырёк, справа -->
                 <div class="message d-flex justify-content-end mb-2">
                     <div class="message-content text-white bg-primary">
                         @msg.Text
@@ -32,7 +30,6 @@
             }
             else
             {
-                <!-- Чужие сообщения: аватарка + имя -->
                 <div class="message text-start d-flex align-items-start mb-2">
                     <img src="@msg.AvatarUrl" class="rounded-circle me-2" style="width:40px; height:40px; object-fit:cover;"
                          @onclick="@(() => NavigationManager.NavigateTo($"/profile/{msg.SenderId}"))"
@@ -45,7 +42,6 @@
                 </div>
             }
         }
-
     </div>
 
     <!-- Поле ввода -->
@@ -62,6 +58,7 @@
 
 @code {
     [Parameter] public int ChatId { get; set; }
+
     private List<(string SenderId, string SenderName, string Text, DateTime SentAt, string AvatarUrl)> Messages = new();
     private string NewMessage = "";
     private string CurrentUserId = "";
@@ -77,7 +74,6 @@
 
         await LoadMessages();
 
-        // Запускаем таймер для обновления каждые 2 секунды
         _refreshTimer = new Timer(2000);
         _refreshTimer.Elapsed += async (sender, e) => await RefreshMessages();
         _refreshTimer.AutoReset = true;
@@ -88,14 +84,16 @@
     {
         _isLoading = true;
 
-        var chat = await _context.Chats
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var chat = await db.Chats
             .Include(c => c.Messages.OrderBy(m => m.SentAt))
                 .ThenInclude(m => m.Sender)
             .FirstOrDefaultAsync(c => c.Id == ChatId);
 
+        Messages.Clear();
         if (chat != null)
         {
-            Messages.Clear();
             foreach (var m in chat.Messages)
             {
                 var avatar = string.IsNullOrEmpty(m.Sender.AvatarPath)
@@ -105,9 +103,7 @@
                 Messages.Add((m.SenderId, m.Sender.Name, m.Text, m.SentAt, avatar));
             }
 
-            _lastUpdate = chat.Messages.Any()
-                ? chat.Messages.Max(m => m.SentAt)
-                : DateTime.UtcNow;
+            _lastUpdate = chat.Messages.Any() ? chat.Messages.Max(m => m.SentAt) : DateTime.UtcNow;
         }
 
         _isLoading = false;
@@ -119,7 +115,9 @@
     {
         if (_isLoading) return;
 
-        var hasNewMessages = await _context.Messages
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var hasNewMessages = await db.Messages
             .Include(m => m.Sender)
             .Where(m => m.ChatId == ChatId && m.SentAt > _lastUpdate)
             .AnyAsync();
@@ -135,32 +133,33 @@
 
     private async Task SendMessage()
     {
-        if (!string.IsNullOrWhiteSpace(NewMessage))
-        {
-            var msg = new Message
-                {
-                    ChatId = ChatId,
-                    SenderId = CurrentUserId,
-                    Text = NewMessage,
-                    SentAt = DateTime.UtcNow
-                };
+        if (string.IsNullOrWhiteSpace(NewMessage)) return;
 
-            _context.Messages.Add(msg);
-            await _context.SaveChangesAsync();
+        await using var db = await DbFactory.CreateDbContextAsync();
 
-            _lastUpdate = msg.SentAt;
+        var msg = new Message
+            {
+                ChatId = ChatId,
+                SenderId = CurrentUserId,
+                Text = NewMessage,
+                SentAt = DateTime.UtcNow
+            };
 
-            var sender = await _context.Users.FindAsync(CurrentUserId);
-            var avatar = string.IsNullOrEmpty(sender?.AvatarPath)
-                ? "/avatars/default-avatar.png"
-                : $"/avatars/{sender.AvatarPath}";
+        db.Messages.Add(msg);
+        await db.SaveChangesAsync();
 
-            Messages.Add((CurrentUserId, sender?.Name ?? "Вы", NewMessage, msg.SentAt, avatar));
+        _lastUpdate = msg.SentAt;
 
-            NewMessage = "";
-            StateHasChanged();
-            await ScrollToBottom();
-        }
+        var sender = await db.Users.FindAsync(CurrentUserId);
+        var avatar = string.IsNullOrEmpty(sender?.AvatarPath)
+            ? "/avatars/default-avatar.png"
+            : $"/avatars/{sender.AvatarPath}";
+
+        Messages.Add((CurrentUserId, sender?.Name ?? "Вы", NewMessage, msg.SentAt, avatar));
+
+        NewMessage = "";
+        StateHasChanged();
+        await ScrollToBottom();
     }
 
     private async Task CheckEnter(KeyboardEventArgs e)
@@ -186,6 +185,7 @@
         _refreshTimer?.Dispose();
     }
 }
+
 
 <style>
     .chat-window {
@@ -227,7 +227,7 @@
             border-radius: 50%;
             object-fit: cover;
             flex-shrink: 0;
-            cursor: pointer;
+
         }
 
     .chat-input {

@@ -1,42 +1,43 @@
 ﻿@page "/profile/{UserId}"
 @rendermode InteractiveServer
+
 @using Microsoft.AspNetCore.Identity
-@using Microsoft.AspNetCore.WebUtilities
-@using SiteZnakomstv.Data
 @using Microsoft.EntityFrameworkCore
-@inject NavigationManager NavigationManager
+@using SiteZnakomstv.Data
+
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject UserManager<ApplicationUser> UserManager
-@inject ApplicationDbContext _context
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject NavigationManager NavigationManager
 
 <h3>@ProfileUser?.Name @ProfileUser?.Surname</h3>
 
 @if (ProfileUser != null)
 {
     <img src="@AvatarUrl"
-         alt="Avatar"
          width="150"
          height="150"
-         style="object-fit: cover;"
-         class="rounded-circle mb-3" />
-}
+         class="rounded-circle mb-3"
+         style="object-fit:cover;" />
 
+    <p>@ProfileUser.Info</p>
+    <p>Город: @ProfileUser.City</p>
+    <p>Пол: @ProfileUser.Gender</p>
+    <p>Дата рождения: @ProfileUser.BirthDate?.ToShortDateString()</p>
+    <p>Интересы: @string.Join(", ", UserInterests.Select(i => i.Name))</p>
 
-
-<p>@ProfileUser?.Info</p>
-<p>Город: @ProfileUser?.City</p>
-<p>Пол: @ProfileUser?.Gender</p>
-<p>Дата рождения: @ProfileUser?.BirthDate?.ToShortDateString()</p>
-<p>Интересы: @string.Join(", ", UserInterests.Select(i => i.Name))</p>
-
-@if (!IsOwnProfile)
-{
-    <button class="btn btn-primary" @onclick="@StartChat">Сообщение</button>
-}
-
-@if (IsOwnProfile)
-{
-    <button class="btn btn-primary" @onclick="@EditProfile">Редактировать</button>
+    @if (!IsOwnProfile)
+    {
+        <button class="btn btn-primary" @onclick="StartChat">
+            Сообщение
+        </button>
+    }
+    else
+    {
+        <button class="btn btn-primary" @onclick="EditProfile">
+            Редактировать
+        </button>
+    }
 }
 
 @code {
@@ -46,68 +47,68 @@
     private List<Interest> UserInterests = new();
     private string? CurrentUserId;
 
-    private bool IsOwnProfile => ProfileUser != null && CurrentUserId == ProfileUser.Id;
+    private bool IsOwnProfile =>
+        ProfileUser != null && ProfileUser.Id == CurrentUserId;
 
     private string AvatarUrl =>
-    string.IsNullOrWhiteSpace(ProfileUser?.AvatarPath)
-        ? "/avatars/default-avatar.png"
-        : $"/avatars/{ProfileUser.AvatarPath}";
-
+        string.IsNullOrEmpty(ProfileUser?.AvatarPath)
+            ? "/avatars/default-avatar.png"
+            : $"/avatars/{ProfileUser.AvatarPath}";
 
     protected override async Task OnInitializedAsync()
     {
-        // Получаем AuthenticationState через внедрённый AuthenticationStateProvider
+        // текущий пользователь
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-        var user = authState.User;
-
-        if (user.Identity?.IsAuthenticated ?? false)
+        if (authState.User.Identity?.IsAuthenticated == true)
         {
-            CurrentUserId = UserManager.GetUserId(user); // Id текущего пользователя
+            CurrentUserId = UserManager.GetUserId(authState.User);
         }
 
-        ProfileUser = await _context.Users
-    .AsNoTracking()
-    .FirstOrDefaultAsync(u => u.Id == UserId);
+        // ⚠ НОВЫЙ DbContext
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        ProfileUser = await db.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == UserId);
 
         if (ProfileUser != null)
         {
-            UserInterests = await _context.Interests
+            UserInterests = await db.Interests
                 .AsNoTracking()
                 .Where(i => i.UserId == UserId)
                 .ToListAsync();
         }
-
     }
 
     private async Task StartChat()
     {
-        var currentUserId = CurrentUserId;
-        var otherUserId = ProfileUser.Id;
+        if (ProfileUser == null || CurrentUserId == null)
+            return;
 
-        var chat = await _context.Chats
-            .Include(c => c.Messages)
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var chat = await db.Chats
             .FirstOrDefaultAsync(c =>
-                (c.User1Id == currentUserId && c.User2Id == otherUserId) ||
-                (c.User1Id == otherUserId && c.User2Id == currentUserId));
+                (c.User1Id == CurrentUserId && c.User2Id == ProfileUser.Id) ||
+                (c.User1Id == ProfileUser.Id && c.User2Id == CurrentUserId));
 
         if (chat == null)
         {
             chat = new Chatik
                 {
-                    User1Id = currentUserId,
-                    User2Id = otherUserId
+                    User1Id = CurrentUserId,
+                    User2Id = ProfileUser.Id
                 };
-            _context.Chats.Add(chat);
-            await _context.SaveChangesAsync();
+
+            db.Chats.Add(chat);
+            await db.SaveChangesAsync();
         }
 
         NavigationManager.NavigateTo($"/chat/{chat.Id}");
     }
 
-
     private void EditProfile()
     {
         NavigationManager.NavigateTo("/profile/edit");
     }
-
 }

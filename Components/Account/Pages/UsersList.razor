@@ -5,23 +5,20 @@
 @using Microsoft.EntityFrameworkCore
 
 @inject UserManager<ApplicationUser> UserManager
-@inject ApplicationDbContext _context
 @inject NavigationManager NavigationManager
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
 
 <h3 class="mb-4">Пользователи</h3>
 
 <div class="mb-3 d-flex flex-wrap gap-2 align-items-end">
-    <!-- Поиск по имени -->
     <input type="text" class="form-control" style="width:200px;"
            placeholder="Имя или фамилия" @bind="nameFilter" />
 
-    <!-- Возраст -->
     <input type="number" class="form-control" style="width:80px;"
            placeholder="От" @bind="minAge" />
     <input type="number" class="form-control" style="width:80px;"
            placeholder="До" @bind="maxAge" />
 
-    <!-- Город -->
     <select class="form-select" style="width:150px;" @bind="cityFilter">
         <option value="">Все города</option>
         @foreach (var city in allCities)
@@ -30,14 +27,12 @@
         }
     </select>
 
-    <!-- Пол -->
     <select class="form-select" style="width:120px;" @bind="genderFilter">
         <option value="">Все</option>
         <option value="Мужской">Мужской</option>
         <option value="Женский">Женский</option>
     </select>
 
-    <!-- Кнопка фильтра по интересам -->
     <button class="btn btn-outline-secondary filter-btn"
             @onclick="() => showInterestFilter = !showInterestFilter">
         Фильтр по интересам
@@ -81,6 +76,7 @@ else
         @foreach (var user in FilteredUsers)
         {
             var avatar = string.IsNullOrEmpty(user.AvatarPath) ? "/avatars/default-avatar.png" : $"/avatars/{user.AvatarPath}";
+            var userInterests = user.Interests; // заранее подгруженные интересы
 
             <div class="col-md-4 mb-4">
                 <div class="card user-card h-100">
@@ -97,12 +93,6 @@ else
                                 <div>Пол: @user.Gender</div>
                             </div>
 
-                            @{
-                                var userInterests = _context.Interests
-                                .Where(i => i.UserId == user.Id)
-                                .Select(i => i.Name)
-                                .ToList();
-                            }
                             @if (userInterests.Any())
                             {
                                 <div class="mt-2">
@@ -119,7 +109,7 @@ else
 }
 
 @code {
-    private List<ApplicationUser>? users;
+    private List<UserDto>? users;
     private List<string> allCities = new();
     private List<string> allInterests = new();
     private HashSet<string> selectedInterests = new();
@@ -131,11 +121,11 @@ else
     private string cityFilter = "";
     private string genderFilter = "";
 
-    private IEnumerable<ApplicationUser> FilteredUsers
+    private IEnumerable<UserDto> FilteredUsers
     {
         get
         {
-            if (users == null) return Enumerable.Empty<ApplicationUser>();
+            if (users == null) return Enumerable.Empty<UserDto>();
 
             return users.Where(u =>
                 (string.IsNullOrWhiteSpace(nameFilter) ||
@@ -145,31 +135,46 @@ else
                 (string.IsNullOrWhiteSpace(genderFilter) || u.Gender == genderFilter) &&
                 (!minAge.HasValue || (u.BirthDate.HasValue && GetAge(u.BirthDate.Value) >= minAge.Value)) &&
                 (!maxAge.HasValue || (u.BirthDate.HasValue && GetAge(u.BirthDate.Value) <= maxAge.Value)) &&
-                (selectedInterests.Count == 0 || _context.Interests
-                    .Where(i => i.UserId == u.Id)
-                    .Select(i => i.Name)
-                    .Intersect(selectedInterests)
-                    .Any())
+                (selectedInterests.Count == 0 || u.Interests.Intersect(selectedInterests).Any())
             );
         }
     }
 
     protected override async Task OnInitializedAsync()
     {
-        allCities = await _context.Users
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        allCities = await db.Users
             .Where(u => !string.IsNullOrEmpty(u.City))
             .Select(u => u.City!)
             .Distinct()
             .OrderBy(c => c)
             .ToListAsync();
 
-        allInterests = await _context.Interests
+        allInterests = await db.Interests
             .Select(i => i.Name)
             .Distinct()
             .OrderBy(i => i)
             .ToListAsync();
 
-        users = await _context.Users.OrderBy(u => u.Name).ToListAsync();
+        // Загружаем пользователей + интересы сразу
+        users = await db.Users
+            .Select(u => new UserDto
+                {
+                    Id = u.Id,
+                    Name = u.Name,
+                    Surname = u.Surname,
+                    BirthDate = u.BirthDate,
+                    City = u.City,
+                    Gender = u.Gender,
+                    AvatarPath = u.AvatarPath,
+                    Interests = db.Interests
+                        .Where(i => i.UserId == u.Id)
+                        .Select(i => i.Name)
+                        .ToList()
+                })
+            .OrderBy(u => u.Name)
+            .ToListAsync();
     }
 
     private int? GetAge(DateTime? dateBirth)
@@ -192,7 +197,20 @@ else
     {
         selectedInterests.Clear();
     }
+
+    private class UserDto
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Surname { get; set; } = "";
+        public DateTime? BirthDate { get; set; }
+        public string? City { get; set; }
+        public string? Gender { get; set; }
+        public string? AvatarPath { get; set; }
+        public List<string> Interests { get; set; } = new();
+    }
 }
+
 
 <style>
     .user-card {
