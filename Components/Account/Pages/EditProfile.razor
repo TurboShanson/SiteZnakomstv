@@ -7,10 +7,11 @@
 @using Microsoft.AspNetCore.Components.Forms
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthenticationStateProvider
-@inject ApplicationDbContext _context
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject NavigationManager NavigationManager
 @inject IWebHostEnvironment Env
 
+<PageTitle>Редактирование профиля</PageTitle>
 <h3>Редактирование профиля</h3>
 
 @if (ProfileUser == null)
@@ -100,7 +101,9 @@ else
         }
 
         var userId = UserManager.GetUserId(authUser);
-        ProfileUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        ProfileUser = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
 
         if (ProfileUser == null)
         {
@@ -108,7 +111,7 @@ else
             return;
         }
 
-        var interests = await _context.Interests
+        var interests = await db.Interests
             .Where(i => i.UserId == userId)
             .Select(i => i.Name)
             .ToListAsync();
@@ -157,7 +160,19 @@ else
     {
         if (ProfileUser == null) return;
 
-        var result = await UserManager.UpdateAsync(ProfileUser);
+        // Загружаем нового "чистого" пользователя для UserManager
+        var userToUpdate = await UserManager.FindByIdAsync(ProfileUser.Id);
+
+        // Обновляем свойства
+        userToUpdate.Name = ProfileUser.Name;
+        userToUpdate.Surname = ProfileUser.Surname;
+        userToUpdate.Info = ProfileUser.Info;
+        userToUpdate.City = ProfileUser.City;
+        userToUpdate.Gender = ProfileUser.Gender;
+        userToUpdate.BirthDate = ProfileUser.BirthDate;
+        userToUpdate.AvatarPath = ProfileUser.AvatarPath;
+
+        var result = await UserManager.UpdateAsync(userToUpdate);
         if (!result.Succeeded)
         {
             foreach (var error in result.Errors)
@@ -165,11 +180,12 @@ else
             return;
         }
 
-        var oldInterests = await _context.Interests
+        // Сохраняем интересы через отдельный DbContext
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var oldInterests = await db.Interests
             .Where(i => i.UserId == ProfileUser.Id)
             .ToListAsync();
-
-        _context.Interests.RemoveRange(oldInterests);
+        db.Interests.RemoveRange(oldInterests);
 
         var newInterests = InterestsText
             .Split(',', StringSplitOptions.RemoveEmptyEntries)
@@ -177,8 +193,8 @@ else
             .Where(i => !string.IsNullOrWhiteSpace(i))
             .Select(i => new Interest { UserId = ProfileUser.Id, Name = i });
 
-        await _context.Interests.AddRangeAsync(newInterests);
-        await _context.SaveChangesAsync();
+        await db.Interests.AddRangeAsync(newInterests);
+        await db.SaveChangesAsync();
 
         NavigationManager.NavigateTo($"/profile/{ProfileUser.Id}", true);
     }

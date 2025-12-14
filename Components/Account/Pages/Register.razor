@@ -21,56 +21,46 @@
 
 <PageTitle>Регистрация</PageTitle>
 
-<h1>Регистрация</h1>
-
-<div class="row">
-    <div class="col-md-4">
+<div class="row justify-content-center">
+    <div class="col-md-6">
         <StatusMessage Message="@Message" />
-        <EditForm Model="Input" asp-route-returnUrl="@ReturnUrl" method="post" OnValidSubmit="RegisterUser" FormName="register">
+        <EditForm Model="Input" OnValidSubmit="RegisterUser" class="card p-4 shadow rounded register-card">
             <DataAnnotationsValidator />
-            <h2>Создание нового аккаунта</h2>
-            <hr />
             <ValidationSummary class="text-danger" role="alert" />
+
             <div class="form-floating mb-3">
                 <InputText @bind-Value="Input.Surname" class="form-control" placeholder="Фамилия" />
-                <label for="surname">Фамилия</label>
+                <label>Фамилия</label>
                 <ValidationMessage For="() => Input.Surname" class="text-danger" />
             </div>
             <div class="form-floating mb-3">
                 <InputText @bind-Value="Input.Name" class="form-control" placeholder="Имя" />
-                <label for="name">Имя</label>
+                <label>Имя</label>
                 <ValidationMessage For="() => Input.Name" class="text-danger" />
             </div>
             <div class="form-floating mb-3">
                 <InputText @bind-Value="Input.InterestsText" class="form-control" placeholder="Спорт, Музыка, Кино" />
-                <label for="interests">Введите свои интересы (через запятую)</label>
+                <label>Интересы (через запятую)</label>
                 <ValidationMessage For="() => Input.InterestsText" class="text-danger" />
             </div>
-
             <div class="form-floating mb-3">
-                <InputText @bind-Value="Input.Email" class="form-control" autocomplete="username" aria-required="true" placeholder="name@example.com" />
-                <label for="email">Email</label>
+                <InputText @bind-Value="Input.Email" class="form-control" placeholder="name@example.com" />
+                <label>Email</label>
                 <ValidationMessage For="() => Input.Email" class="text-danger" />
             </div>
             <div class="form-floating mb-3">
-                <InputText type="password" @bind-Value="Input.Password" class="form-control" autocomplete="new-password" aria-required="true" placeholder="password" />
-                <label for="password">Password</label>
+                <InputText type="password" @bind-Value="Input.Password" class="form-control" placeholder="Пароль" />
+                <label>Пароль</label>
                 <ValidationMessage For="() => Input.Password" class="text-danger" />
             </div>
             <div class="form-floating mb-3">
-                <InputText type="password" @bind-Value="Input.ConfirmPassword" class="form-control" autocomplete="new-password" aria-required="true" placeholder="password" />
-                <label for="confirm-password">Confirm Password</label>
+                <InputText type="password" @bind-Value="Input.ConfirmPassword" class="form-control" placeholder="Подтвердите пароль" />
+                <label>Подтвердите пароль</label>
                 <ValidationMessage For="() => Input.ConfirmPassword" class="text-danger" />
             </div>
-            <button type="submit" class="w-100 btn btn-lg btn-primary">Register</button>
+
+            <button type="submit" class="btn w-100 btn-pink btn-lg mt-3">Создать аккаунт</button>
         </EditForm>
-    </div>
-    <div class="col-md-6 col-md-offset-2">
-        <section>
-            <h3>Use another service to register.</h3>
-            <hr />
-            <ExternalLoginPicker />
-        </section>
     </div>
 </div>
 
@@ -195,3 +185,42 @@
     }
 
 }
+
+<style>
+    .register-card {
+        background: linear-gradient(135deg, #ffccd5, #ff99ac);
+        color: #000;
+    }
+
+    .form-control {
+        border-radius: 0.75rem;
+        padding: 0.75rem;
+    }
+
+    .btn-pink {
+        background: linear-gradient(135deg, #ff4d6d, #ffb3c1);
+        color: #fff;
+        font-weight: bold;
+        font-size: 1.25rem;
+        border-radius: 50px;
+        padding: 0.75rem 2rem;
+        border: none;
+        transition: all 0.3s ease;
+    }
+
+        .btn-pink:hover {
+            background-color: #ff4d6d;
+            color: #fff;
+            text-decoration: none;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+        }
+
+    label {
+        color: #000;
+    }
+
+    .validation-message {
+        font-size: 0.875rem;
+    }
+</style>

@@ -12,6 +12,9 @@
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IJSRuntime JS
 
+<PageTitle>@PageTitleText</PageTitle>
+
+
 <div class="chat-container d-flex flex-column mx-auto" style="height:calc(100vh - 70px); width:70%;">
 
     <!-- Область сообщений -->
@@ -65,6 +68,9 @@
     private Timer? _refreshTimer;
     private DateTime _lastUpdate = DateTime.UtcNow;
     private bool _isLoading = false;
+    private string PageTitleText = "Чат"; // Заголовок по умолчанию
+    private string? OtherUserName;
+
 
     protected override async Task OnInitializedAsync()
     {
@@ -109,6 +115,15 @@
         _isLoading = false;
         StateHasChanged();
         await ScrollToBottom();
+
+        var otherUser = chat.User1Id == CurrentUserId
+    ? await db.Users.FindAsync(chat.User2Id)
+    : await db.Users.FindAsync(chat.User1Id);
+
+        OtherUserName = otherUser != null ? $"{otherUser.Name} {otherUser.Surname}" : "Чат";
+        PageTitleText = OtherUserName;
+        StateHasChanged();
+
     }
 
     private async Task RefreshMessages()
@@ -199,25 +214,25 @@
             display: flex;
             align-items: flex-start;
             margin-bottom: 0.5rem;
-            width: 100%; /* добавляем, чтобы блок растягивался по ширине контейнера */
+            width: 100%;
         }
-
 
         .chat-window .message-content {
             padding: 0.5rem 0.75rem;
             border-radius: 0.75rem;
-        }
-
-        .chat-window .text-end .message-content {
-            background-color: #0d6efd;
-            color: white;
-            max-width: 85%; /* вместо 70% */
+            max-width: 85%;
             word-wrap: break-word;
         }
 
+        /* Свои сообщения справа */
+        .chat-window .justify-content-end .message-content {
+            background-color: #ffe6f0; /* светло-розовый фон */
+            color: #212529; /* тёмный текст */
+        }
 
+        /* Сообщения собеседника слева */
         .chat-window .text-start .message-content {
-            background-color: #f1f3f5;
+            background-color: #f8f0f5; /* немного светлее розовый */
             color: #212529;
         }
 
@@ -227,7 +242,6 @@
             border-radius: 50%;
             object-fit: cover;
             flex-shrink: 0;
-
         }
 
     .chat-input {
@@ -240,9 +254,32 @@
 
         .chat-input input {
             height: 40px;
+            border: 1px solid #dee2e6;
+            border-radius: 0.5rem;
+            padding: 0.25rem 0.5rem;
+            transition: border-color 0.3s;
         }
+
+            .chat-input input:focus {
+                border-color: #ff4d6d; /* розовый цвет при фокусе */
+                outline: none;
+                box-shadow: 0 0 5px rgba(255, 77, 109, 0.5);
+            }
 
         .chat-input button {
             height: 40px;
+            background: linear-gradient(135deg, #ff4d6d, #ffb3c1);
+            border: none;
+            color: #fff;
+            font-weight: bold;
+            padding: 0 1.5rem;
+            border-radius: 0.5rem;
+            transition: all 0.3s ease;
         }
+
+            .chat-input button:hover {
+                background-color: #ff1f4b;
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            }
 </style>
